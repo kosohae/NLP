@@ -49,4 +49,4 @@ When training model, automatically evaluating similarity and analogy from evalua
 
 Trained embeddings skip-gram-neg-15 link.
 
-[https://drive.google.com/drive/folders/1pWUIsIuQWVyzuXIlDNqYYG7ffLTOD1ow?usp=sharing](https://drive.google.com/drive/folders/1pWUIsIuQWVyzuXIlDNqYYG7ffLTOD1ow?usp=sharing)
+[https://drive.google.com/drive/folders/1Ozz2Dy8zSWx1FhIcDhRuYPlp0eFP-6P1?usp=sharing](https://drive.google.com/drive/folders/1Ozz2Dy8zSWx1FhIcDhRuYPlp0eFP-6P1?usp=sharing)
