@@ -1,6 +1,10 @@
 # Distributed Representations of Words and Phrases and their Compositionality
 
-This code is implementation about Distributed Representations of Words and Phrases and their Compositionality paper, Word2Vec. [https://proceedings.neurips.cc/paper/2013/file/9aa42b31882ec039965f3c4923ce901b-Paper.pdf](https://proceedings.neurips.cc/paper/2013/file/9aa42b31882ec039965f3c4923ce901b-Paper.pdf)
+This code is python and pytorch implementation about Efficient Estimation of Word Representations in
+Vector Space [https://arxiv.org/pdf/1301.3781.pdf](https://arxiv.org/pdf/1301.3781.pdf)
+
+Plus, I use negative sampling and sub-sampling.
+Distributed Representations of Words and Phrases and their Compositionality paper, Word2Vec. [https://proceedings.neurips.cc/paper/2013/file/9aa42b31882ec039965f3c4923ce901b-Paper.pdf](https://proceedings.neurips.cc/paper/2013/file/9aa42b31882ec039965f3c4923ce901b-Paper.pdf)
 
 ## Task
 To find word representations that are useful for predicting surrounding words in a sentence or a document. given a sequence of training words 
@@ -10,6 +14,10 @@ Clone this repository.
 ```
 git clone https://github.com/kosohae/NLP.git
 ```
+## Implementation conditions
+python >= 3.6.5
+pytorch >= 1.5
+
 ## Download the Data
 ```
 Download google one billion dataset.
@@ -49,4 +57,4 @@ When training model, automatically evaluating similarity and analogy from evalua
 
 Trained embeddings skip-gram-neg-15 link.
 
-[https://drive.google.com/drive/folders/1Ozz2Dy8zSWx1FhIcDhRuYPlp0eFP-6P1?usp=sharing](https://drive.google.com/drive/folders/1Ozz2Dy8zSWx1FhIcDhRuYPlp0eFP-6P1?usp=sharing)
+[https://drive.google.com/drive/folders/1pWUIsIuQWVyzuXIlDNqYYG7ffLTOD1ow?usp=sharing](https://drive.google.com/drive/folders/1pWUIsIuQWVyzuXIlDNqYYG7ffLTOD1ow?usp=sharing)
