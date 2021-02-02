@@ -23,12 +23,83 @@ from torchtext.datasets import SST,TREC
 from src.model.config import ModelConfig, Struct
 from src.utils.logger import LOGGER, TB_LOGGER, RunningMeter, add_log_to_file # settting logging module
 
-CUDA = True
+SEED = 42
+DATA = 'TREC'
+CUDA = False
 DEBUG = False
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-MODE = 'nonstatic' # nonstatic[]
-WORD_VECTORS = 'word2vec' # choices = [rand, word2vec]
+MODE = 'static' # nonstatic[]
+WORD_VECTORS = 'rand' # choices = [rand, word2vec]
 DIM = 300
+
+#  set seed
+np.random.seed(SEED)
+torch.manual_seed(SEED)
+torch.cuda.manual_seed(SEED)
+torch.cuda.manual_seed_all(SEED) # if use multi-GPU
+
+LOGGER.info(MODE)
+LOGGER.info(WORD_VECTORS)
+#########################
+# Custom class Setting
+#########################
+class GSST(SST):
+    urls = ['http://nlp.stanford.edu/sentiment/trainDevTestTrees_PTB.zip']
+    dirname = 'trees'
+    name = 'sst'
+
+    @staticmethod
+    def sort_key(ex):
+        return len(ex.text)
+
+    def __init__(self, path, text_field, label_field, subtrees=False,
+                 fine_grained=True, **kwargs):
+        fields = [('text', text_field), ('label', label_field)]
+
+        def get_label_str(label):
+            pre = 'very ' if fine_grained else ''
+            return {'0': pre + 'negative', '1': 'negative', '2': 'neutral',
+                    '3': 'positive', '4': pre + 'positive', None: None}[label]
+        label_field.preprocessing = data.Pipeline(get_label_str)
+        with open(os.path.expanduser(path)) as f:
+            if subtrees:
+                examples = [ex for line in f for ex in
+                            data.Example.fromtree(line, fields, True)]
+            else:
+                examples = [data.Example.fromtree(line, fields) for line in f]
+        super(SST, self).__init__(examples, fields, **kwargs)
+
+    @classmethod
+    def splits(cls, text_field, label_field, root='.data',
+               train='train.txt', validation='dev.txt', test='test.txt',
+               train_subtrees=False, **kwargs):
+
+        path = cls.download(root)
+
+        train_data = None if train is None else cls(
+            os.path.join(path, train), text_field, label_field, subtrees=train_subtrees,
+            **kwargs)
+        val_data = None if validation is None else cls(
+            os.path.join(path, validation), text_field, label_field, **kwargs)
+        test_data = None if test is None else cls(
+            os.path.join(path, test), text_field, label_field, **kwargs)
+        return tuple(d for d in (train_data, val_data, test_data)
+                     if d is not None)
+
+
+    @classmethod
+    def iters(cls, batch_size=32, device=0, root='.data', vectors=None, **kwargs):
+        TEXT = data.Field()
+        LABEL = data.Field(sequential=False)
+
+        train, val, test = cls.splits(TEXT, LABEL, root=root, **kwargs)
+
+        TEXT.build_vocab(train, vectors=vectors)
+        LABEL.build_vocab(train)
+
+        return data.BucketIterator.splits(
+            (train, val, test), batch_size=batch_size, shuffle=True, device=device)
+
 
 #########################
 # Model Setting
@@ -55,7 +126,7 @@ class TextCNN(nn.Module):
     self.criterion  : output layer for logistic regression, projecting data points onto a set of hyperplanes, 
                                             the distance to which is used to determine a class membership probability.
     """
-    def __init__(self, channel_in, channel_out, filter_size, non_linear='tanh', p=0.1):
+    def __init__(self, channel_in, channel_out, filter_size, non_linear='relu', p=0.2):
         super(TextCNN, self).__init__()
         self.conv_layers = nn.ModuleList(nn.Conv1d(channel_in, channel_out, kernel_size=filter_size) for filter_size in cfg.filter_hs)
         if non_linear == 'tanh':
@@ -67,7 +138,8 @@ class TextCNN(nn.Module):
                 
         self.dropout = nn.Dropout(p=p)
         self.hidden0 = nn.Sequential(nn.Linear(cfg.hidden_units[0]*3, cfg.hidden_units[0]), self.act) # 300,classes
-        self.hidden1 = nn.Linear(cfg.hidden_units[0], cfg.hidden_units[1])
+        self.hidden1 = nn.Sequential(nn.Linear(cfg.hidden_units[0]*3, cfg.hidden_units[0]), self.act)
+        self.classifier = nn.Linear(cfg.hidden_units[0], cfg.hidden_units[1])
         self.criterion = nn.CrossEntropyLoss() # log softmax
         
         
@@ -82,9 +154,12 @@ class TextCNN(nn.Module):
             outputs.append(output)
         
         outputs = torch.cat(outputs, dim=1) # B,H
-        outputs = self.hidden0(outputs) 
+        #x = outputs
+        outputs = self.hidden0(outputs)
         outputs = self.dropout(outputs) # dropout input
-        preds = self.hidden1(outputs) # B,C
+        preds = self.classifier(outputs)
+        #resid = self.hidden1(x)
+        #preds = self.classifier(outputs + resid)
         # get argmax for Prec@1
         
         loss = self.criterion(preds, labels) # errors
@@ -131,30 +206,50 @@ if __name__ == '__main__':
     ###############################
     LOGGER.info(cfg)
     
-    TEXT = data.Field()
-    LABEL = data.Field(sequential=False)
+    if DATA == 'SST':
+        TEXT = data.Field()
+        LABEL = data.Field(sequential=False)
 
-    train, val, test = SST.splits(TEXT, LABEL, root='./data')
+        train, val, test = GSST.splits(TEXT, LABEL, root='./data')
 
-    # build vocabulary
-    TEXT.build_vocab(train)
-    LABEL.build_vocab(train)
+        # build vocabulary
+        TEXT.build_vocab(train)
+        LABEL.build_vocab(train)
 
-    # define loader(iter class)
-    loaders = SST.iters(batch_size=cfg.batch_size, device=DEVICE if CUDA else "cpu", vectors=None)
+        # define loader(iter class)
+        loaders = GSST.iters(batch_size=cfg.batch_size, device=DEVICE if CUDA else "cpu", vectors=None)
 
-    # split loader
-    train_loader, eval_loader, test_loader = loaders
-    LOGGER.info(f"train steps : {len(train_loader)} eval steps : {len(eval_loader)}")
-    LOGGER.info(f"Vocabulary length : {len(TEXT.vocab.stoi)}")
-    
+        # split loader
+        train_loader, eval_loader, test_loader = loaders
+
+    elif DATA == 'TREC':
+
+        TEXT = data.Field()
+        LABEL = data.Field(sequential=False)
+
+        train, test = TREC.splits(TEXT, LABEL, root='./data')
+
+        # build vocabulary
+        TEXT.build_vocab(train)
+        LABEL.build_vocab(train)
+
+        # define loader(iter class)
+        loaders = TREC.iters(batch_size=cfg.batch_size, device=DEVICE if CUDA else "cpu", vectors=None)
+
+        # split loader
+        train_loader, test_loader = loaders
+
+        #TEXT.vocab.itos
+        LABEL.vocab.itos
+    else:
+        print("choose data ! SST, TREC")
     
     ###############################
     ## Set Variable
     ###############################
     if WORD_VECTORS == 'rand':
         # random initialize all word vectors
-        W1 = torch.empty(len(TEXT.vocab.itos), DIM).uniform_(-4.0625, 4.1875)
+        W1 = torch.empty(len(TEXT.vocab.itos), DIM).uniform_(-0.5, 0.5)
         # do not train  
         W1[1,:]=0
         U = W1
@@ -178,8 +273,9 @@ if __name__ == '__main__':
     model = TextCNN(cfg.hidden_units[0] * 3,cfg.hidden_units[0],cfg.filter_hs)
     model.train()
 
-    LR = 0.001
-    optimizer = Adam(model.parameters(), lr=LR) # 0.001
+    LR = 1e-04
+    #optimizer = Adam(model.parameters(), lr=LR) # 0.001
+    optimizer = Adadelta(model.parameters(), lr=1.)
     
     ###################################
     ### Training
@@ -191,7 +287,7 @@ if __name__ == '__main__':
         steps=0
         num=0
         pbar = tqdm(train_loader)
-        pbar_eval = tqdm(eval_loader)
+        pbar_eval = tqdm(test_loader)
         for field in pbar:
             # check shape
             if DEBUG:
@@ -227,23 +323,29 @@ if __name__ == '__main__':
 
         eval_num=0
         model.eval()
+        cnt=0
         for field in pbar_eval:
             field.text = field.text.transpose(-1,0)
+            if field.text.shape[-1] < 5:
+                continue
+                
             labels = field.label-1
             indicies = U[field.text]
             indicies = indicies.permute(0,2,1)
+            cnt+=1
 
             with torch.no_grad():
                 eval_loss, preds = model(indicies, labels)
                 eval_num += (preds == labels).int().sum()
-
-        eval_avg_acc = eval_num / (len(eval_loader) * cfg.batch_size)
+                
+        eval_avg_acc = eval_num / (cnt* cfg.batch_size)        
+#         eval_avg_acc = eval_num / (len(test_loader) * cfg.batch_size)
         print(f"Epoch[{epoch}/{cfg.n_epochs}] Eval Accuracy : {eval_avg_acc*100:.2f}")
-
+    
         if best_loss > avg_loss and best_acc < eval_avg_acc:
             best_loss = loss
-            best_acc = avg_acc
-            torch.save(model.state_dict(), os.path.join('{}_{}_{}_{}_{}.pt'.format('textcnn', LR, WORD_VECTORS, MODE, key)))
+            best_acc = eval_avg_acc
+            torch.save(model.state_dict(), os.path.join('result/', '{}_{}_{}_{}_{}.pt'.format('textcnn', LR, WORD_VECTORS, MODE, key)))
             print("Model saved...")
 
 
